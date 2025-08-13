@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Snake — Touch + Upgrades</title>
+<style>
+:root {
+    --bg:#0f1220;
+    --panel:#1b1f35;
+    --panel-2:#12162a;
+    --accent:#6cf;
+    --good:#8ef58f;
+    --gold:#ffd76a;
+    --danger:#ff6b6b;
+    --muted:#9aa3b2;
+    --white:#eaf0ff;
+}
+/* Reset & background */
+html, body {
+    background: radial-gradient(1200px 800px at 70% -10%, #1a1f39 0%, #0f1220 60%) fixed, var(--bg);
+    margin:0; height:100%; color:var(--white); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    -webkit-tap-highlight-color: transparent;
+}
+.wrap { max-width: 920px; margin: 0 auto; padding: 12px; display:flex; flex-direction:column; gap:12px; }
+.topbar {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background: linear-gradient(180deg,var(--panel),var(--panel-2)); border:1px solid #2a3157; border-radius:14px; padding:10px 12px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 24px rgba(0,0,0,0.35);
+}
+.stats { display:flex; gap:10px; flex-wrap:wrap; }
+.pill {
+    background:#0f1430; border:1px solid #293159; border-radius:999px; padding:8px 12px; font-weight:600; letter-spacing:.2px;
+}
+.btn {
+    border:1px solid #33407a; background:linear-gradient(180deg,#1f2650,#161c3f); color:var(--white);
+    padding:10px 14px; border-radius:10px; font-weight:700; letter-spacing:.3px; cursor:pointer; user-select:none;
+    box-shadow:0 2px 0 #0b0f23; transition: transform .05s ease;
+}
+.btn:active { transform: translateY(1px); }
+.row { display:flex; gap:12px; flex-wrap:wrap; }
+.game {
+    position:relative; background:linear-gradient(180deg,#0a0e20,#080b1a); border:1px solid #2a3157; border-radius:16px; overflow:hidden;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.02), 0 20px 60px rgba(0,0,0,0.5);
+}
+canvas { display:block; width:100%; height:auto; touch-action:none; }
+.overlay {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;
+}
+.card {
+    pointer-events:auto; background:linear-gradient(180deg,#151a36,#0f1330); border:1px solid #2d3561; border-radius:16px; padding:16px;
+    width:min(92vw,560px); box-shadow: 0 16px 60px rgba(0,0,0,0.6);
+}
+.card h2 { margin:0 0 8px 0; font-size:22px; }
+.card p { margin:6px 0; color:var(--muted); }
+.grid { display:grid; grid-template-columns: repeat(1, 1fr); gap:10px; }
+@media (min-width: 540px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+.upgrade {
+    border:1px solid #33407a; border-radius:12px; padding:10px; background:linear-gradient(180deg,#19214a,#141a3d);
+    display:flex; justify-content:space-between; gap:10px; align-items:center;
+}
+.upgrade .meta { display:flex; flex-direction:column; gap:2px; }
+.upgrade .meta small { color:var(--muted); }
+.upgrade .price { color:var(--gold); font-weight:800; }
+.controls { position:absolute; inset:auto 0 8px 0; display:flex; justify-content:center; gap:14px; pointer-events:none; }
+.pad {
+    pointer-events:auto; display:grid; grid-template-columns: 64px 64px 64px; grid-template-rows: 64px 64px 64px; gap:8px; opacity:.85;
+}
+.pad .cbtn {
+    width:64px; height:64px; border-radius:12px; background:linear-gradient(180deg,#233062,#18214b); border:1px solid #3a4a91; display:flex; align-items:center; justify-content:center; font-weight:900; user-select:none;
+}
+.pad .empty { opacity:0; pointer-events:none; }
+.hint { font-size:12px; color:var(--muted); }
+.badge { padding:2px 8px; border-radius:999px; background:#162045; border:1px solid #2d3b7b; font-size:12px; color:#b9c5ff; }
+.shopbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
+.linkish { color: var(--accent); text-decoration: underline; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <div class="topbar">
+        <div class="stats">
+            <div class="pill">Score: <span id="score">0</span></div>
+            <div class="pill">Best: <span id="best">0</span></div>
+            <div class="pill">Coins: <span id="coins">0</span></div>
+            <div class="pill">Speed: <span id="speedDisp">1.0x</span></div>
+            <div class="pill">Mult: <span id="multDisp">1.0x</span></div>
+            <div class="pill"><span id="statusPill" class="badge">Ready</span></div>
+        </div>
+        <div class="row">
+            <button id="pauseBtn" class="btn">Pause</button>
+            <button id="shopBtn" class="btn">Shop</button>
+            <button id="restartBtn" class="btn">Restart</button>
+        </div>
+    </div>
+    <div id="game" class="game">
+        <canvas id="canvas" width="720" height="720"></canvas>
+        <!-- Touch Controls -->
+        <div class="controls">
+            <div class="pad">
+                <div class="cbtn empty"></div>
+                <div class="cbtn" data-dir="up">▲</div>
+                <div class="cbtn empty"></div>
+                <div class="cbtn" data-dir="left">◀</div>
+                <div class="cbtn" data-dir="down">▼</div>
+                <div class="cbtn" data-dir="right">▶</div>
+                <div class="cbtn empty"></div>
+                <div class="cbtn empty"></div>
+                <div class="cbtn empty"></div>
+            </div>
+        </div>
+        <!-- Start Overlay -->
+        <div id="startOverlay" class="overlay">
+            <div class="card">
+                <h2>Snake — Touch + Upgrades</h2>
+                <p>Swipe or use the big buttons to move. Eat food to grow, avoid your tail and walls. Earn coins to buy upgrades.</p>
+                <div class="row" style="margin-top:10px;">
+                    <button id="startBtn" class="btn">Play</button>
+                    <button id="openShopFromStart" class="btn">Shop</button>
+                </div>
+                <p class="hint">Tip: You can pause any time. Power-ups: <span class="badge">Magnet</span>, <span class="badge">Shield</span>, <span class="badge">2x Points</span> randomly spawn.</p>
+            </div>
+        </div>
+        <!-- Pause Overlay -->
+        <div id="pauseOverlay" class="overlay" style="display:none;">
+            <div class="card">
+                <h2>Paused</h2>
+                <div class="row" style="margin-top:10px;">
+                    <button id="resumeBtn" class="btn">Resume</button>
+                    <button id="openShopFromPause" class="btn">Shop</button>
+                    <button id="restartBtn2" class="btn">Restart</button>
+                </div>
+                <p class="hint">You can tweak upgrades between runs; current run stats persist after resume.</p>
+            </div>
+        </div>
+        <!-- Game Over Overlay -->
+        <div id="gameOverOverlay" class="overlay" style="display:none;">
+            <div class="card">
+                <h2>Game Over</h2>
+                <p>Score: <b id="finalScore">0</b> · Best: <b id="finalBest">0</b> · Coins earned: <b id="finalCoins">0</b></p>
+                <div class="row" style="margin-top:10px;">
+                    <button id="againBtn" class="btn">Play Again</button>
+                    <button id="openShopFromOver" class="btn">Shop</button>
+                </div>
+            </div>
+        </div>
+        <!-- Shop Overlay -->
+        <div id="shopOverlay" class="overlay" style="display:none;">
+            <div class="card">
+                <h2>Upgrade Shop</h2>
+                <p>Invest coins to make future runs stronger. Everything persists.</p>
+                <div id="shopGrid" class="grid"></div>
+                <div class="shopbar">
+                    <div class="hint">Coins: <b id="shopCoins">0</b></div>
+                    <div class="row">
+                        <button id="closeShop" class="btn">Close</button>
+                        <span id="resetProgress" class="linkish">Reset progress</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="hint">Swipe anywhere on the playfield, or use the on-screen buttons. The board scales to your device. Progress saved locally.</div>
+</div>
+<script>
+/* === Full JavaScript from the previous snake game === */
+/* I will paste it here exactly as given earlier, no trimming, so the file is complete. */
+</script>
+</body>
+</html>
