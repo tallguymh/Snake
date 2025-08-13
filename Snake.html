@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Snake — Touch + Upgrades</title>
+<style>
+  :root {
+    --bg:#0f1220;
+    --panel:#1b1f35;
+    --panel-2:#12162a;
+    --accent:#6cf;
+    --good:#8ef58f;
+    --gold:#ffd76a;
+    --danger:#ff6b6b;
+    --muted:#9aa3b2;
+    --white:#eaf0ff;
+  }
+  html, body {
+    background: radial-gradient(1200px 800px at 70% -10%, #1a1f39 0%, #0f1220 60%) fixed, var(--bg);
+    margin:0; height:100%; color:var(--white); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap {
+    max-width: 920px; margin: 0 auto; padding: 12px; display:flex; flex-direction:column; gap:12px;
+  }
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background: linear-gradient(180deg,var(--panel),var(--panel-2)); border:1px solid #2a3157; border-radius:14px; padding:10px 12px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02), 0 6px 24px rgba(0,0,0,0.35);
+  }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; }
+  .pill {
+    background:#0f1430; border:1px solid #293159; border-radius:999px; padding:8px 12px; font-weight:600; letter-spacing:.2px;
+  }
+  .btn {
+    border:1px solid #33407a; background:linear-gradient(180deg,#1f2650,#161c3f); color:var(--white);
+    padding:10px 14px; border-radius:10px; font-weight:700; letter-spacing:.3px; cursor:pointer; user-select:none;
+    box-shadow:0 2px 0 #0b0f23; transition: transform .05s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .row { display:flex; gap:12px; flex-wrap:wrap; }
+  .game {
+    position:relative; background:linear-gradient(180deg,#0a0e20,#080b1a); border:1px solid #2a3157; border-radius:16px; overflow:hidden;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.02), 0 20px 60px rgba(0,0,0,0.5);
+  }
+  canvas { display:block; width:100%; height:auto; touch-action:none; }
+  .overlay {
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;
+  }
+  .card {
+    pointer-events:auto; background:linear-gradient(180deg,#151a36,#0f1330); border:1px solid #2d3561; border-radius:16px; padding:16px;
+    width:min(92vw,560px); box-shadow: 0 16px 60px rgba(0,0,0,0.6);
+  }
+  .card h2 { margin:0 0 8px 0; font-size:22px; }
+  .card p { margin:6px 0; color:var(--muted); }
+  .grid {
+    display:grid; grid-template-columns: repeat(1, 1fr); gap:10px;
+  }
+  @media (min-width: 540px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .upgrade {
+    border:1px solid #33407a; border-radius:12px; padding:10px; background:linear-gradient(180deg,#19214a,#141a3d);
+    display:flex; justify-content:space-between; gap:10px; align-items:center;
+  }
+  .upgrade .meta { display:flex; flex-direction:column; gap:2px; }
+  .upgrade .meta small { color:var(--muted); }
+  .upgrade .price { color:var(--gold); font-weight:800; }
+  .controls {
+    position:absolute; inset:auto 0 8px 0; display:flex; justify-content:center; gap:14px; pointer-events:none;
+  }
+  .pad {
+    pointer-events:auto; display:grid; grid-template-columns: 64px 64px 64px; grid-template-rows: 64px 64px 64px; gap:8px; opacity:.85;
+  }
+  .pad .cbtn {
+    width:64px; height:64px; border-radius:12px; background:linear-gradient(180deg,#233062,#18214b); border:1px solid #3a4a91; display:flex; align-items:center; justify-content:center; font-weight:900; user-select:none;
+  }
+  .pad .empty { opacity:0; pointer-events:none; }
+  .hint { font-size:12px; color:var(--muted); }
+  .badge { padding:2px 8px; border-radius:999px; background:#162045; border:1px solid #2d3b7b; font-size:12px; color:#b9c5ff; }
+  .shopbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; }
+  .linkish { color: var(--accent); text-decoration: underline; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="stats">
+        <div class="pill">Score: <span id="score">0</span></div>
+        <div class="pill">Best: <span id="best">0</span></div>
+        <div class="pill">Coins: <span id="coins">0</span></div>
+        <div class="pill">Speed: <span id="speedDisp">1.0x</span></div>
+        <div class="pill">Mult: <span id="multDisp">1.0x</span></div>
+        <div class="pill"><span id="statusPill" class="badge">Ready</span></div>
+      </div>
+      <div class="row">
+        <button id="pauseBtn" class="btn">Pause</button>
+        <button id="shopBtn" class="btn">Shop</button>
+        <button id="restartBtn" class="btn">Restart</button>
+      </div>
+    </div>
+
+    <div id="game" class="game">
+      <canvas id="canvas" width="720" height="720" aria-label="Snake game canvas"></canvas>
+
+      <!-- Touch D-Pad -->
+      <div class="controls">
+        <div class="pad" aria-hidden="false" role="group" aria-label="Directional controls">
+          <div class="cbtn empty"></div>
+          <div class="cbtn" data-dir="up">▲</div>
+          <div class="cbtn empty"></div>
+          <div class="cbtn" data-dir="left">◀</div>
+          <div class="cbtn" data-dir="down">▼</div>
+          <div class="cbtn" data-dir="right">▶</div>
+          <div class="cbtn empty"></div>
+          <div class="cbtn empty"></div>
+          <div class="cbtn empty"></div>
+        </div>
+      </div>
+
+      <!-- Overlays -->
+      <div id="startOverlay" class="overlay">
+        <div class="card">
+          <h2>Snake — Touch + Upgrades</h2>
+          <p>Swipe or use the big buttons to move. Eat food to grow, avoid your tail and walls. Earn coins to buy upgrades.</p>
+          <div class="row" style="margin-top:10px;">
+            <button id="startBtn" class="btn">Play</button>
+            <button id="openShopFromStart" class="btn">Shop</button>
+          </div>
+          <p class="hint">Tip: You can pause any time. Power-ups: <span class="badge">Magnet</span>, <span class="badge">Shield</span>, <span class="badge">2x Points</span> randomly spawn.</p>
+        </div>
+      </div>
+
+      <div id="pauseOverlay" class="overlay" style="display:none;">
+        <div class="card">
+          <h2>Paused</h2>
+          <div class="row" style="margin-top:10px;">
+            <button id="resumeBtn" class="btn">Resume</button>
+            <button id="openShopFromPause" class="btn">Shop</button>
+            <button id="restartBtn2" class="btn">Restart</button>
+          </div>
+          <p class="hint">You can tweak upgrades between runs; current run stats persist after resume.</p>
+        </div>
+      </div>
+
+      <div id="gameOverOverlay" class="overlay" style="display:none;">
+        <div class="card">
+          <h2>Game Over</h2>
+          <p>Score: <b id="finalScore">0</b> · Best: <b id="finalBest">0</b> · Coins earned: <b id="finalCoins">0</b></p>
+          <div class="row" style="margin-top:10px;">
+            <button id="againBtn" class="btn">Play Again</button>
+            <button id="openShopFromOver" class="btn">Shop</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="shopOverlay" class="overlay" style="display:none;">
+        <div class="card">
+          <h2>Upgrade Shop</h2>
+          <p>Invest coins to make future runs stronger. Everything persists.</p>
+          <div id="shopGrid" class="grid" aria-live="polite"></div>
+          <div class="shopbar">
+            <div class="hint">Coins: <b id="shopCoins">0</b></div>
+            <div class="row">
+              <button id="closeShop" class="btn">Close</button>
+              <span id="resetProgress" class="linkish">Reset progress</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="hint">Swipe anywhere on the playfield, or use the on-screen buttons. The board scales to your device. Progress saved locally.</div>
+  </div>
+
+<script>
+(() => {
+  // ------------------ Persistent Meta ------------------
+  const storage = {
+    get() {
+      const coins = parseInt(localStorage.getItem('snakeCoins') || '0', 10);
+      const best = parseInt(localStorage.getItem('snakeBest') || '0', 10);
+      const ups = JSON.parse(localStorage.getItem('snakeUpgrades') || '{}');
+      return { coins, best, ups };
+    },
+    setCoins(v){ localStorage.setItem('snakeCoins', String(v)); },
+    setBest(v){ localStorage.setItem('snakeBest', String(v)); },
+    setUps(o){ localStorage.setItem('snakeUpgrades', JSON.stringify(o)); },
+    reset(){
+      localStorage.removeItem('snakeCoins');
+      localStorage.removeItem('snakeBest');
+      localStorage.removeItem('snakeUpgrades');
+    }
+  };
+
+  // Default upgrades
+  const defaultUps = {
+    speedLevel: 0,         // +4% tick speed / level
+    coinMultLevel: 0,      // +10% coins / level
+    magnetLevel: 0,        // +2s magnet duration / level
+    spawnLuckLevel: 0,     // +5% chance better spawns / level
+    reviveLevel: 0,        // +1 auto-revive per run if >=1
+    startLenLevel: 0       // +1 starting length / level (cap 5)
+  };
+
+  // Shop config
+  const shopDefs = [
+    {
+      key:'speedLevel', title:'Speed Boost', desc:'+4% movement speed per level.',
+      price: l => 40 + l*20, cap: 15
+    },
+    {
+      key:'coinMultLevel', title:'Coin Multiplier', desc:'+10% coins per level.',
+      price: l => 60 + l*30, cap: 10
+    },
+    {
+      key:'magnetLevel', title:'Magnet Mastery', desc:'+2s Magnet duration per level.',
+      price: l => 50 + l*25, cap: 10
+    },
+    {
+      key:'spawnLuckLevel', title:'Lucky Spawns', desc:'+5% chance for gold/PU spawns per level.',
+      price: l => 75 + l*35, cap: 10
+    },
+    {
+      key:'reviveLevel', title:'Auto-Revive', desc:'Revive once per run if unlocked.',
+      price: l => (l ? 9999 : 120), cap: 1
+    },
+    {
+      key:'startLenLevel', title:'Head Start', desc:'+1 starting length per level (max 5).',
+      price: l => 45 + l*25, cap: 5
+    },
+  ];
+
+  // ------------------ Game State ------------------
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  const UI = {
+    score: document.getElementById('score'),
+    best: document.getElementById('best'),
+    coins: document.getElementById('coins'),
+    speedDisp: document.getElementById('speedDisp'),
+    multDisp: document.getElementById('multDisp'),
+    statusPill: document.getElementById('statusPill'),
+    startOverlay: document.getElementById('startOverlay'),
+    pauseOverlay: document.getElementById('pauseOverlay'),
+    gameOverOverlay: document.getElementById('gameOverOverlay'),
+    shopOverlay: document.getElementById('shopOverlay'),
+    finalScore: document.getElementById('finalScore'),
+    finalBest: document.getElementById('finalBest'),
+    finalCoins: document.getElementById('finalCoins'),
+    shopCoins: document.getElementById('shopCoins'),
+    shopGrid: document.getElementById('shopGrid'),
+  };
+
+  const BTN = {
+    pause: document.getElementById('pauseBtn'),
+    shop: document.getElementById('shopBtn'),
+    restart: document.getElementById('restartBtn'),
+    restart2: document.getElementById('restartBtn2'),
+    start: document.getElementById('startBtn'),
+    again: document.getElementById('againBtn'),
+    openShopFromStart: document.getElementById('openShopFromStart'),
+    openShopFromPause: document.getElementById('openShopFromPause'),
+    openShopFromOver: document.getElementById('openShopFromOver'),
+    closeShop: document.getElementById('closeShop'),
+    resetProgress: document.getElementById('resetProgress'),
+  };
+
+  // Layout & grid
+  const gridSize = 24; // 24x24
+  const cell = () => Math.floor(Math.min(canvas.width, canvas.height) / gridSize);
+
+  let run; // game loop handle
+
+  // Dynamic state (per run)
+  let state;
+  function newRun() {
+    const { coins, best, ups } = storage.get();
+    const up = { ...defaultUps, ...ups };
+    // starting snake
+    const startLen = 4 + Math.min(up.startLenLevel, 5);
+    const start = { x: Math.floor(gridSize/2), y: Math.floor(gridSize/2) };
+    const body = [];
+    for (let i=0;i<startLen;i++) body.push({x:start.x - i, y:start.y});
+    state = {
+      dir: {x:1,y:0}, nextDir:{x:1,y:0},
+      body,
+      grow: 0,
+      alive: true,
+      score: 0,
+      coinsRun: 0,
+      tickMsBase: 140, // base step time (lower is faster)
+      tickAcc: 0,
+      lastTs: 0,
+      food: spawnFood(body, []),
+      powerups: [],
+      effects: { magnet:0, double:0, shield:false },
+      usedRevive:false,
+      ups: up,
+    };
+    syncTopbar();
+    UI.statusPill.textContent = 'Good luck!';
+    resizeCanvas(); // to recompute cell size
+  }
+
+  // ------------------ Helpers ------------------
+  function randInt(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+  function choice(list){ return list[Math.floor(Math.random()*list.length)]; }
+  function posEq(a,b){ return a.x===b.x && a.y===b.y; }
+  function inBody(p, body){ return body.some(s=>posEq(s,p)); }
+
+  function emptyCells(exclude) {
+    const taken = new Set(exclude.map(p=>`${p.x},${p.y}`));
+    const cells = [];
+    for (let y=0;y<gridSize;y++){
+      for (let x=0;x<gridSize;x++){
+        const key = `${x},${y}`;
+        if(!taken.has(key)) cells.push({x,y});
+      }
+    }
+    return cells;
+  }
+
+  function spawnFood(body, powerups) {
+    // spawn classic food (apple) or rarer golden apple
+    const occ = body.concat(powerups);
+    const cells = emptyCells(occ);
+    if (cells.length===0) return null;
+    const luck = state ? state.ups.spawnLuckLevel*0.05 : 0;
+    const isGold = Math.random() < (0.06 + luck*0.6);
+    const pos = choice(cells);
+    return { x:pos.x, y:pos.y, kind: isGold ? 'gold' : 'apple' };
+  }
+
+  function maybeSpawnPowerup() {
+    // Spawn chance influenced by spawnLuckLevel
+    const luck = state.ups.spawnLuckLevel;
+    const chance = 0.02 + luck*0.01; // per tick (when called)
+    if (Math.random()<chance && state.powerups.length < 3) {
+      const kinds = ['magnet','shield','double'];
+      const occ = state.body.concat(state.food ? [state.food] : []);
+      const cells = emptyCells(occ).filter(p=>!inBody(p,state.powerups));
+      if (cells.length===0) return;
+      const p = choice(cells);
+      state.powerups.push({x:p.x,y:p.y,kind:choice(kinds)});
+    }
+  }
+
+  function applyFood(food) {
+    let points = (food.kind==='gold') ? 5 : 1;
+    let coins = (food.kind==='gold') ? 5 : 1;
+    if (state.effects.double>0) points *= 2;
+    const coinMult = 1 + state.ups.coinMultLevel*0.10;
+    coins = Math.round(coins * coinMult);
+    state.score += points;
+    state.coinsRun += coins;
+    state.grow += (food.kind==='gold') ? 2 : 1;
+    UI.score.textContent = state.score;
+    UI.coins.textContent = storage.get().coins + state.coinsRun;
+  }
+
+  function applyPowerup(kind) {
+    if (kind==='magnet') {
+      const base = 6000; // 6s
+      const extra = state.ups.magnetLevel*2000; // +2s/level
+      state.effects.magnet = Math.max(state.effects.magnet, base + extra);
+      flashStatus('Magnet ON');
+    } else if (kind==='double') {
+      state.effects.double = Math.max(state.effects.double, 7000);
+      flashStatus('2× Points');
+    } else if (kind==='shield') {
+      state.effects.shield = true;
+      flashStatus('Shield Ready');
+    }
+  }
+
+  function flashStatus(text) {
+    UI.statusPill.textContent = text;
+    UI.statusPill.style.background = '#13325b';
+    setTimeout(()=>{ UI.statusPill.style.background = ''; }, 300);
+  }
+
+  function setBestIfNeeded() {
+    const { best } = storage.get();
+    if (state.score > best) {
+      storage.setBest(state.score);
+      UI.best.textContent = state.score;
+    }
+  }
+
+  function endRun() {
+    cancelAnimationFrame(run);
+    setBestIfNeeded();
+    const bank = storage.get().coins;
+    storage.setCoins(bank + state.coinsRun);
+    UI.finalScore.textContent = state.score;
+    UI.finalBest.textContent = storage.get().best;
+    UI.finalCoins.textContent = state.coinsRun;
+    UI.coins.textContent = storage.get().coins;
+    UI.gameOverOverlay.style.display = '';
+  }
+
+  function reviveIfAvailable() {
+    if (!state.ups.reviveLevel || state.usedRevive) return false;
+    state.usedRevive = true;
+    state.effects.shield = true; // brief safety
+    flashStatus('Revived!');
+    return true;
+  }
+
+  function tickspeedMs() {
+    const s = state.ups.speedLevel;
+    const mult = 1 - s*0.04; // faster = smaller ms
+    const minMs = 55;
+    return Math.max(minMs, state.tickMsBase * mult);
+  }
+
+  function syncTopbar() {
+    const { coins, best, ups } = storage.get();
+    UI.best.textContent = best;
+    UI.score.textContent = state ? state.score : 0;
+    UI.coins.textContent = coins + (state ? state.coinsRun : 0);
+    UI.speedDisp.textContent = (1 + (ups.speedLevel||0)*0.04).toFixed(2)+'x';
+    UI.multDisp.textContent = (1 + (ups.coinMultLevel||0)*0.10).toFixed(2)+'x';
+  }
+
+  // ------------------ Rendering ------------------
+  function resizeCanvas() {
+    // Fit to container while keeping square shape and high DPI crispness
+    const parent = document.getElementById('game');
+    const size = Math.min(parent.clientWidth, Math.max(420, Math.floor(window.innerHeight * 0.62)));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.style.width = size+'px';
+    canvas.style.height = size+'px';
+    canvas.width = Math.floor(size * dpr);
+    canvas.height = Math.floor(size * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  function draw() {
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    const c = cell();
+    // background grid
+    ctx.clearRect(0,0,w,h);
+    const grd = ctx.createLinearGradient(0,0,0,h);
+    grd.addColorStop(0,'#0b1028');
+    grd.addColorStop(1,'#070a1b');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0,0,w,h);
+
+    ctx.save();
+    // grid squares
+    for (let y=0;y<gridSize;y++){
+      for (let x=0;x<gridSize;x++){
+        if ((x+y)%2===0) {
+          ctx.fillStyle = '#0e1431';
+          ctx.fillRect(x*c, y*c, c, c);
+        }
+      }
+    }
+
+    // food
+    if (state.food) {
+      if (state.food.kind==='gold') {
+        ctx.fillStyle = '#ffd76a';
+        roundedRect(ctx, state.food.x*c+3, state.food.y*c+3, c-6, c-6, 6);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#8ef58f';
+        roundedRect(ctx, state.food.x*c+5, state.food.y*c+5, c-10, c-10, 6);
+        ctx.fill();
+      }
+    }
+
+    // powerups
+    for (const p of state.powerups) {
+      if (p.kind==='magnet') ctx.fillStyle = '#6cf';
+      else if (p.kind==='double') ctx.fillStyle = '#a88bff';
+      else if (p.kind==='shield') ctx.fillStyle = '#62f5ff';
+      ctx.globalAlpha = 0.92;
+      roundedRect(ctx, p.x*c+6, p.y*c+6, c-12, c-12, 6);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // snake
+    for (let i=0;i<state.body.length;i++){
+      const s = state.body[i];
+      const hue = 200 + i*0.6;
+      ctx.fillStyle = i===0 ? '#6ab7ff' : `hsl(${hue} 60% 55%)`;
+      roundedRect(ctx, s.x*c+2, s.y*c+2, c-4, c-4, 6);
+      ctx.fill();
+      if (i===0 && state.effects.shield) {
+        ctx.strokeStyle = 'rgba(98,245,255,.9)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(s.x*c+3, s.y*c+3, c-6, c-6);
+      }
+    }
+
+    // effect timers
+    const barY = h - 8;
+    const bars = [];
+    if (state.effects.magnet>0) bars.push({color:'#6cf', pct: state.effects.magnet/10000});
+    if (state.effects.double>0) bars.push({color:'#a88bff', pct: state.effects.double/7000});
+    if (bars.length) {
+      const pad = 10, bw = (w - pad*2 - (bars.length-1)*8)/bars.length, bh = 6;
+      for (let i=0;i<bars.length;i++){
+        const b = bars[i];
+        ctx.fillStyle = '#1a214a';
+        ctx.fillRect(pad + i*(bw+8), barY, bw, bh);
+        ctx.fillStyle = b.color;
+        ctx.fillRect(pad + i*(bw+8), barY, Math.max(0, Math.min(bw, bw*b.pct)), bh);
+      }
+    }
+
+    ctx.restore();
+  }
+
+  function roundedRect(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.arcTo(x+w,y,x+w,y+h,rr);
+    ctx.arcTo(x+w,y+h,x,y+h,rr);
+    ctx.arcTo(x,y+h,x,y,rr);
+    ctx.arcTo(x,y,x+w,y,rr);
+    ctx.closePath();
+  }
+
+  // ------------------ Game Loop ------------------
+  function loop(ts) {
+    if (!state.alive) return;
+    if (!state.lastTs) state.lastTs = ts;
+    const dt = ts - state.lastTs;
+    state.lastTs = ts;
+    state.tickAcc += dt;
+
+    // effect ticking
+    if (state.effects.magnet>0) state.effects.magnet = Math.max(0, state.effects.magnet - dt);
+    if (state.effects.double>0) state.effects.double = Math.max(0, state.effects.double - dt);
+
+    const stepMs = tickspeedMs();
+    while (state.tickAcc >= stepMs) {
+      state.tickAcc -= stepMs;
+      step();
+      maybeSpawnPowerup();
+    }
+
+    draw();
+    run = requestAnimationFrame(loop);
+  }
+
+  function step() {
+    // update direction (prevent immediate reverse)
+    const nd = state.nextDir;
+    const hd = state.dir;
+    if (!(nd.x === -hd.x && nd.y === -hd.y)) state.dir = nd;
+
+    // new head
+    const head = state.body[0];
+    const nh = { x: head.x + state.dir.x, y: head.y + state.dir.y };
+
+    // collisions
+    let hit = false;
+    // wall
+    if (nh.x<0 || nh.x>=gridSize || nh.y<0 || nh.y>=gridSize) hit = true;
+    // self
+    if (!hit && inBody(nh, state.body)) hit = true;
+
+    if (hit) {
+      if (state.effects.shield) {
+        state.effects.shield = false;
+        flashStatus('Shield broke!');
+        // cancel move (stay in place) to give a chance to turn
+        return;
+      } else if (reviveIfAvailable()) {
+        // place head back inside safely: shift backwards
+        const safe = safeSpotNearCenter();
+        if (safe) {
+          state.body = [safe,{x:safe.x-1,y:safe.y},{x:safe.x-2,y:safe.y}];
+          state.dir = {x:1,y:0};
+          state.nextDir = {x:1,y:0};
+          return;
+        }
+      }
+      state.alive = false;
+      endRun();
+      return;
+    }
+
+    // move
+    state.body.unshift(nh);
+    // magnet attract food slightly
+    if (state.effects.magnet>0 && state.food) {
+      const f = state.food;
+      const dx = Math.sign(nh.x - f.x);
+      const dy = Math.sign(nh.y - f.y);
+      const dist = Math.abs(nh.x - f.x) + Math.abs(nh.y - f.y);
+      if (dist <= 3 + Math.floor(state.ups.magnetLevel/2)) {
+        // pull toward head
+        const nx = f.x + dx;
+        const ny = f.y + dy;
+        if (nx>=0 && nx<gridSize && ny>=0 && ny<gridSize && !inBody({x:nx,y:ny}, state.body)) {
+          f.x = nx; f.y = ny;
+        }
+      }
+    }
+
+    // food eat
+    if (state.food && posEq(nh, state.food)) {
+      applyFood(state.food);
+      state.food = spawnFood(state.body, state.powerups);
+    } else if (state.grow>0) {
+      state.grow--;
+    } else {
+      state.body.pop();
+    }
+
+    // powerup pickup
+    for (let i=state.powerups.length-1;i>=0;i--){
+      const p = state.powerups[i];
+      if (posEq(nh,p)) {
+        applyPowerup(p.kind);
+        state.powerups.splice(i,1);
+      }
+    }
+  }
+
+  function safeSpotNearCenter() {
+    const occ = state.body;
+    const candidates = [];
+    for (let r=0;r<gridSize;r++){
+      for (let dy=-r; dy<=r; dy++){
+        for (let dx=-r; dx<=r; dx++){
+          const x = Math.floor(gridSize/2)+dx;
+          const y = Math.floor(gridSize/2)+dy;
+          if (x<0||x>=gridSize||y<0||y>=gridSize) continue;
+          const p = {x,y};
+          if (!inBody(p, occ)) candidates.push(p);
+        }
+      }
+      if (candidates.length) return choice(candidates);
+    }
+    return null;
+  }
+
+  // ------------------ Input: Swipe + Buttons + Keys ------------------
+  const gameEl = document.getElementById('game');
+  let touchStart = null;
+  function handleDir(dx,dy){
+    const nd = {x:dx,y:dy};
+    const hd = state.dir;
+    if (nd.x === -hd.x && nd.y === -hd.y) return;
+    state.nextDir = nd;
+  }
+
+  gameEl.addEventListener('touchstart', (e)=>{
+    const t = e.changedTouches[0];
+    touchStart = { x:t.clientX, y:t.clientY, t: e.timeStamp };
+  }, {passive:true});
+  gameEl.addEventListener('touchmove', (e)=>{
+    if (!touchStart) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    if (Math.abs(dx)+Math.abs(dy) > 24) {
+      if (Math.abs(dx) > Math.abs(dy)) {
+        handleDir(Math.sign(dx),0);
+      } else {
+        handleDir(0,Math.sign(dy));
+      }
+      touchStart = null;
+    }
+  }, {passive:true});
+  gameEl.addEventListener('touchend', ()=>{ touchStart=null; }, {passive:true});
+
+  // On-screen D-Pad
+  document.querySelectorAll('.cbtn[data-dir]').forEach(btn=>{
+    btn.addEventListener('touchstart', (e)=>{
+      e.preventDefault();
+      const d = btn.getAttribute('data-dir');
+      if (d==='up') handleDir(0,-1);
+      if (d==='down') handleDir(0,1);
+      if (d==='left') handleDir(-1,0);
+      if (d==='right') handleDir(1,0);
+    }, {passive:false});
+    btn.addEventListener('click',(e)=>{
+      const d = btn.getAttribute('data-dir');
+      if (d==='up') handleDir(0,-1);
+      if (d==='down') handleDir(0,1);
+      if (d==='left') handleDir(-1,0);
+      if (d==='right') handleDir(1,0);
+    });
+  });
+
+  // Keyboard (desktop testing)
+  window.addEventListener('keydown', (e)=>{
+    const k = e.key.toLowerCase();
+    if (k==='arrowup' || k==='w') handleDir(0,-1);
+    if (k==='arrowdown' || k==='s') handleDir(0,1);
+    if (k==='arrowleft' || k==='a') handleDir(-1,0);
+    if (k==='arrowright' || k==='d') handleDir(1,0);
+    if (k===' ') togglePause();
+  });
+
+  // ------------------ UI Wiring ------------------
+  BTN.start.addEventListener('click', startGame);
+  BTN.again.addEventListener('click', ()=>{ UI.gameOverOverlay.style.display='none'; startGame(); });
+  BTN.restart.addEventListener('click', ()=>{ restart(); });
+  BTN.restart2 && BTN.restart2.addEventListener('click', ()=>{ restart(); });
+  BTN.pause.addEventListener('click', togglePause);
+
+  BTN.shop.addEventListener('click', ()=>{ openShop(true); });
+  BTN.openShopFromStart.addEventListener('click', ()=>{ openShop(false); });
+  BTN.openShopFromPause.addEventListener('click', ()=>{ openShop(false); });
+  BTN.openShopFromOver.addEventListener('click', ()=>{ openShop(false); });
+  BTN.closeShop.addEventListener('click', ()=>{ closeShop(); });
+
+  BTN.resetProgress.addEventListener('click', ()=>{
+    if (confirm('Reset all progress (coins, best score, upgrades)?')) {
+      storage.reset();
+      renderShop();
+      syncTopbar();
+    }
+  });
+
+  function startGame() {
+    UI.startOverlay.style.display = 'none';
+    UI.pauseOverlay.style.display = 'none';
+    UI.gameOverOverlay.style.display = 'none';
+    newRun();
+    cancelAnimationFrame(run);
+    run = requestAnimationFrame(loop);
+  }
+
+  function restart() {
+    UI.pauseOverlay.style.display = 'none';
+    UI.gameOverOverlay.style.display = 'none';
+    newRun();
+    cancelAnimationFrame(run);
+    run = requestAnimationFrame(loop);
+  }
+
+  function togglePause() {
+    if (UI.startOverlay.style.display === '' || UI.gameOverOverlay.style.display === '') return;
+    if (UI.pauseOverlay.style.display === 'none') {
+      UI.pauseOverlay.style.display = '';
+      cancelAnimationFrame(run);
+    } else {
+      UI.pauseOverlay.style.display = 'none';
+      run = requestAnimationFrame(loop);
+    }
+  }
+
+  function openShop(pauseGame) {
+    if (pauseGame) {
+      cancelAnimationFrame(run);
+      UI.pauseOverlay.style.display = '';
+    }
+    UI.shopOverlay.style.display = '';
+    renderShop();
+  }
+
+  function closeShop() {
+    UI.shopOverlay.style.display = 'none';
+    UI.shopCoins.textContent = storage.get().coins;
+    renderShop();
+  }
+
+  function renderShop() {
+    const { coins, ups } = storage.get();
+    const u = { ...defaultUps, ...ups };
+    UI.shopCoins.textContent = coins;
+    UI.shopGrid.innerHTML = '';
+    for (const def of shopDefs) {
+      const lvl = u[def.key] || 0;
+      const price = def.price(lvl);
+      const atCap = lvl >= def.cap;
+      const canAfford = coins >= price;
+      const el = document.createElement('div');
+      el.className = 'upgrade';
+      el.innerHTML = `
+        <div class="meta">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <b>${def.title}</b> <span class="badge">Lv ${lvl}/${def.cap}</span>
+          </div>
+          <small>${def.desc}</small>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+          <div class="price">${atCap ? 'Maxed' : price + ' ⦿'}</div>
+          <button class="btn" ${atCap ? 'disabled' : ''}>${atCap ? '—' : (canAfford ? 'Buy' : 'Need ' + (price - coins))}</button>
+        </div>
+      `;
+      const btn = el.querySelector('button');
+      if (!atCap) {
+        btn.addEventListener('click', ()=>{
+          const st = storage.get();
+          if (st.coins < price) return;
+          const nu = { ...defaultUps, ...st.ups };
+          nu[def.key] = (nu[def.key]||0) + 1;
+          storage.setCoins(st.coins - price);
+          storage.setUps(nu);
+          syncTopbar();
+          renderShop();
+        });
+      }
+      UI.shopGrid.appendChild(el);
+    }
+    syncTopbar();
+  }
+
+  // ------------------ Boot ------------------
+  function boot() {
+    // Ensure upgrades defaults exist
+    const st = storage.get();
+    storage.setUps({...defaultUps, ...st.ups});
+    syncTopbar();
+    newRun();
+    cancelAnimationFrame(run);
+    draw(); // initial render
+  }
+
+  boot();
+
+})();
+</script>
+</body>
+</html>
